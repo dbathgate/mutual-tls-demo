@@ -1,0 +1,10 @@
+server:
+  port: 8443
+  ssl:
+    enabled: true
+    key-store: server-identity.jks
+    key-password: secret
+    key-store-password: secret
+    trust-store: server-truststore.jks
+    trust-store-password: secret
+    client-auth: need
