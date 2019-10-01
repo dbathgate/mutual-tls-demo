@@ -17,13 +17,20 @@ import org.springframework.test.context.junit4.SpringRunner;
 import org.springframework.web.client.RestTemplate;
 
 import javax.net.ssl.SSLContext;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.net.Socket;
+import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.security.*;
 import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.util.Base64;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertEquals;
 
@@ -35,25 +42,73 @@ public class MutualTlsTest {
     private int port;
 
     @Test
-    public void test() throws KeyStoreException, IOException, CertificateException, NoSuchAlgorithmException, UnrecoverableKeyException, KeyManagementException {
-        KeyStore identityKeyStore = KeyStore.getInstance("jks");
+    public void testWithJks() throws KeyStoreException, IOException, CertificateException, NoSuchAlgorithmException, UnrecoverableKeyException, KeyManagementException {
+         KeyStore identityKeyStore = KeyStore.getInstance("jks");
+         KeyStore trustKeyStore = KeyStore.getInstance("jks");
 
-        try (InputStream inputStream = new FileInputStream("client-identity.jks")) {
-            identityKeyStore.load(inputStream, "secret".toCharArray());
-        }
+         try (InputStream inputStream = new FileInputStream("client-identity.jks")) {
+             identityKeyStore.load(inputStream, "secret".toCharArray());
+         }
 
-        KeyStore trustKeyStore = KeyStore.getInstance("jks");
+        trustKeyStore.load(null, "secret".toCharArray());
 
         try (InputStream inputStream = new FileInputStream("client-truststore.jks")) {
             trustKeyStore.load(inputStream, "secret".toCharArray());
         }
-        
+
         SSLContext sslContext = SSLContexts.custom()
                 .loadKeyMaterial(identityKeyStore, "secret".toCharArray(), (Map<String, PrivateKeyDetails> aliases, Socket socket) -> {
                     return "test";
                 })
                 .loadTrustMaterial(trustKeyStore, null)
                 .build();
+
+        SSLConnectionSocketFactory sslConnectionSocketFactory = new SSLConnectionSocketFactory(sslContext);
+        HttpClient httpClient = HttpClients.custom().setSSLSocketFactory(sslConnectionSocketFactory).build();
+        ClientHttpRequestFactory requestFactory = new HttpComponentsClientHttpRequestFactory(httpClient);
+        RestTemplate restTemplate = new RestTemplate(requestFactory);
+
+        ResponseEntity<String> response = restTemplate.getForEntity("https://localhost:" + port + "/cred", String.class);
+
+
+        assertEquals("secret", response.getBody());
+    }
+
+    @Test
+    public void testPem() throws KeyStoreException, IOException, CertificateException, NoSuchAlgorithmException, UnrecoverableKeyException, KeyManagementException, InvalidKeySpecException {
+        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+        CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
+
+        KeyStore identityKeyStore = KeyStore.getInstance("jks");
+
+        identityKeyStore.load(null, "secret".toCharArray());
+
+        try (InputStream publicKeyInput = new FileInputStream("client-public-cert.pem")) {
+
+            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+            Files.copy(Paths.get("client-private-key.der"), byteArrayOutputStream);
+
+            PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(byteArrayOutputStream.toByteArray());
+            PrivateKey privateKey = keyFactory.generatePrivate(spec);
+            X509Certificate cert = (X509Certificate)certFactory.generateCertificate(publicKeyInput);
+            identityKeyStore.setKeyEntry("test", privateKey, "secret".toCharArray(), new X509Certificate[] {cert});
+        }
+
+        KeyStore trustKeyStore = KeyStore.getInstance("jks");
+
+        trustKeyStore.load(null, "secret".toCharArray());
+
+        try (InputStream inputStream = new FileInputStream("server-public-cert.pem")) {
+            X509Certificate cert = (X509Certificate)certFactory.generateCertificate(inputStream);
+            trustKeyStore.setCertificateEntry("test", cert);
+        }
+
+        SSLContext sslContext = SSLContexts.custom()
+            .loadKeyMaterial(identityKeyStore, "secret".toCharArray(), (Map<String, PrivateKeyDetails> aliases, Socket socket) -> {
+                return "test";
+            })
+            .loadTrustMaterial(trustKeyStore, null)
+            .build();
 
         SSLConnectionSocketFactory sslConnectionSocketFactory = new SSLConnectionSocketFactory(sslContext);
         HttpClient httpClient = HttpClients.custom().setSSLSocketFactory(sslConnectionSocketFactory).build();
