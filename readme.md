@@ -45,7 +45,12 @@ mvn clean spring-boot:run
 curl https://localhost:8443/cred --key client-private-key.pem  --cert client-public-cert.pem -k
 ```
 
-## Using JKS files
+## Example 1: Using JKS files
+
+* This Example loads keys into a Java Key Store (JKS) file that is protected by a secret
+* Using JKS requires creating a file using the `keytool` CLI
+* The JSK file is loaded into a `KeyStore` object for use of configuring the `SSLContext`
+
 ```java
 KeyStore identityKeyStore = KeyStore.getInstance("jks");
 KeyStore trustKeyStore = KeyStore.getInstance("jks");
@@ -75,7 +80,9 @@ RestTemplate restTemplate = new RestTemplate(requestFactory);
 ResponseEntity<String> response = restTemplate.getForEntity("https://localhost:" + port + "/cred", String.class);
 ```
 
-### Using PEM format
+### Example 1: Using PEM format
+* This example bypasses the need for JKS files by loading the keys directly from their original format
+* An empty `KeyStore` object initialized with a secret and the key is read into the `KeyStore` instance
 
 ```java
 KeyFactory keyFactory = KeyFactory.getInstance("RSA");
