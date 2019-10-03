@@ -5,6 +5,25 @@
 * Server will not accept request from a Client that is not trusted
 * Client will not call a Server that is not trusted
 
+## Sever setup
+* The spring boot server app is setup with a `server-identity.jks` file to configure the HTTPS listener
+* Another jks file named `server-truststore.jks` is configured with the trusted client certificate
+* Server is configured in `src/main/resources/application.yml`
+* The `client-auth: need` setting tells the app that the client needs to be authenticated using the client certificate
+
+```yaml
+server:
+  port: 8443
+  ssl:
+    enabled: true
+    key-store: server-identity.jks
+    key-password: secret
+    key-store-password: secret
+    trust-store: server-truststore.jks
+    trust-store-password: secret
+    client-auth: need
+```
+
 ### Setup Server identity
 ```bash
 # Create Server public/private PEM
@@ -80,7 +99,7 @@ RestTemplate restTemplate = new RestTemplate(requestFactory);
 ResponseEntity<String> response = restTemplate.getForEntity("https://localhost:" + port + "/cred", String.class);
 ```
 
-### Example 1: Using PEM format
+### Example 2: Using PEM format
 * This example bypasses the need for JKS files by loading the keys directly from their original format
 * An empty `KeyStore` object initialized with a secret and the key is read into the `KeyStore` instance
 
