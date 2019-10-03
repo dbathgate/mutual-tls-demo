@@ -7,7 +7,6 @@ import org.apache.http.ssl.PrivateKeyDetails;
 import org.apache.http.ssl.SSLContexts;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.web.server.LocalServerPort;
 import org.springframework.http.ResponseEntity;
@@ -17,9 +16,11 @@ import org.springframework.test.context.junit4.SpringRunner;
 import org.springframework.web.client.RestTemplate;
 
 import javax.net.ssl.SSLContext;
-import java.io.*;
+import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.Socket;
-import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.*;
@@ -30,7 +31,6 @@ import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertEquals;
 
@@ -70,7 +70,6 @@ public class MutualTlsTest {
 
         ResponseEntity<String> response = restTemplate.getForEntity("https://localhost:" + port + "/cred", String.class);
 
-
         assertEquals("secret", response.getBody());
     }
 
@@ -80,23 +79,29 @@ public class MutualTlsTest {
         CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
 
         KeyStore identityKeyStore = KeyStore.getInstance("jks");
+        KeyStore trustKeyStore = KeyStore.getInstance("jks");
 
+        // need to initialize Keystores with any secret
+        trustKeyStore.load(null, "secret".toCharArray());
         identityKeyStore.load(null, "secret".toCharArray());
 
         try (InputStream publicKeyInput = new FileInputStream("client-public-cert.pem")) {
 
             ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-            Files.copy(Paths.get("client-private-key.der"), byteArrayOutputStream);
+            Files.copy(Paths.get("client-private-key.pem"), byteArrayOutputStream);
+            String privateKeyString = new String(byteArrayOutputStream.toByteArray(), "UTF-8");
 
-            PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(byteArrayOutputStream.toByteArray());
+            privateKeyString = privateKeyString.replace("-----BEGIN PRIVATE KEY-----\n", "");
+            privateKeyString = privateKeyString.replace("-----END PRIVATE KEY-----", "");
+            privateKeyString = privateKeyString.replace("\n", "");
+
+            byte[] keyBytes = Base64.getDecoder().decode(privateKeyString);
+
+            PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(keyBytes);
             PrivateKey privateKey = keyFactory.generatePrivate(spec);
             X509Certificate cert = (X509Certificate)certFactory.generateCertificate(publicKeyInput);
             identityKeyStore.setKeyEntry("test", privateKey, "secret".toCharArray(), new X509Certificate[] {cert});
         }
-
-        KeyStore trustKeyStore = KeyStore.getInstance("jks");
-
-        trustKeyStore.load(null, "secret".toCharArray());
 
         try (InputStream inputStream = new FileInputStream("server-public-cert.pem")) {
             X509Certificate cert = (X509Certificate)certFactory.generateCertificate(inputStream);
@@ -116,7 +121,6 @@ public class MutualTlsTest {
         RestTemplate restTemplate = new RestTemplate(requestFactory);
 
         ResponseEntity<String> response = restTemplate.getForEntity("https://localhost:" + port + "/cred", String.class);
-
 
         assertEquals("secret", response.getBody());
     }
